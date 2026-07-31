@@ -56,13 +56,13 @@ A full-stack, AI-powered document intelligence platform that combines **Elastics
 └─────────────────┘     │  - CRUD / Search / AI / FRS   │
                         └──────────┬────────────────────┘
                                    │
-            ┌──────────────────────┼──────────────────────┐
-            ▼                      ▼                      ▼
-   ┌──────────────┐      ┌───────────────┐      ┌───────────────┐
-   │ Elasticsearch│      │   ChromaDB    │      │  LLM / Groq   │
-   │  (documents, │      │ (chunks, img, │      │   (internet)  │
-   │    users)    │      │  face embeds) │      │   + CLIP OCR  │
-   └──────────────┘      └───────────────┘      └───────────────┘
+            ┌──────────────────────┼──────────────────────┬──────────────┐
+            ▼                      ▼                      ▼              ▼
+   ┌──────────────┐      ┌───────────────┐      ┌───────────────┐  ┌───────────┐
+   │ Elasticsearch│      │   ChromaDB    │      │  LLM / Groq   │  │   MySQL   │
+   │  (documents) │      │ (chunks, img, │      │   (internet)  │  │  (users)  │
+   │              │      │  face embeds) │      │   + CLIP OCR  │  │           │
+   └──────────────┘      └───────────────┘      └───────────────┘  └───────────┘
 ```
 
 | Component | Technology | Purpose |
@@ -71,6 +71,7 @@ A full-stack, AI-powered document intelligence platform that combines **Elastics
 | Backend | FastAPI + Uvicorn | REST API, business logic |
 | Search | Elasticsearch 8.x | Full-text & document store |
 | Vector DB | ChromaDB | Semantic embeddings (text, image, faces) |
+| User Store | MySQL 8.x | User credentials & profiles (JWT auth) |
 | Text Embeddings | Sentence-Transformers `all-MiniLM-L6-v2` | 384-dim semantic vectors |
 | Image Embeddings | OpenCLIP `ViT-B-32` | 512-dim image vectors |
 | OCR | RapidOCR / Tesseract | Text extraction from images |
@@ -104,11 +105,12 @@ set GROQ_API_KEY=gsk_xxxx  # PowerShell
 docker compose up --build
 ```
 
-Docker Compose starts **three services**:
+Docker Compose starts **four services**:
 
 | Service | Port | Description |
 |---------|------|-------------|
 | `elasticsearch` | 9200 | Document & full-text search |
+| `mysql` | 3306 | User credentials & profiles |
 | `backend` | 8000 | FastAPI REST API |
 | `frontend` | 80 | React app (nginx) |
 
@@ -126,6 +128,9 @@ Then open your browser:
 | `GROQ_API_KEY` | *(required)* | Your Groq API key |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | LLM model for AI features |
 | `JWT_SECRET` | `docmind-secret-key-change-in-production-2026` | Token signing secret — **change in production** |
+| `MYSQL_USER` | `docmind` | MySQL application user |
+| `MYSQL_PASSWORD` | `docmind123` | MySQL application password |
+| `MYSQL_DATABASE` | `docmind` | MySQL database name |
 
 ---
 
@@ -143,7 +148,18 @@ bin\elasticsearch.bat
 ./bin/elasticsearch
 ```
 
-#### 2. Backend (FastAPI)
+#### 2. Start MySQL
+
+User credentials are stored in MySQL. Install MySQL 8.x and create the database + user:
+
+```sql
+CREATE DATABASE IF NOT EXISTS docmind CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'docmind'@'localhost' IDENTIFIED BY 'docmind123';
+GRANT ALL PRIVILEGES ON docmind.* TO 'docmind'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+#### 3. Backend (FastAPI)
 
 ```bash
 cd backend
@@ -167,7 +183,7 @@ python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 Backend runs at **http://127.0.0.1:8000** — interactive docs at `/docs`.
 
-#### 3. Frontend (React + Vite)
+#### 4. Frontend (React + Vite)
 
 ```bash
 cd frontend
@@ -266,7 +282,7 @@ AI_Intellegense/
 │   ├── requirements.txt         # Python dependencies
 │   ├── .env.example             # Environment template
 │   ├── services/
-│   │   ├── auth.py              # JWT + bcrypt + user CRUD
+│   │   ├── auth.py              # JWT + bcrypt + user CRUD (MySQL)
 │   │   ├── document_processor.py# Text extraction & chunking
 │   │   ├── embeddings.py        # Text + CLIP image embeddings
 │   │   ├── vector_store.py      # ChromaDB operations
@@ -289,7 +305,7 @@ AI_Intellegense/
 │   └── tomcat/
 │       ├── java/                # Java proxy source
 │       └── WEB-INF/             # web.xml, context.xml
-├── docker-compose.yml           # Orchestration (ES + backend + frontend)
+├── docker-compose.yml           # Orchestration (ES + MySQL + backend + frontend)
 ├── start.bat                    # Local dev quick-start (Windows)
 └── .gitignore
 ```
@@ -300,9 +316,9 @@ AI_Intellegense/
 
 **Frontend:** React 18, Vite 5, TailwindCSS 3, React Router 6, Recharts, Lucide Icons, react-markdown, react-hot-toast
 
-**Backend:** Python 3.12, FastAPI, Uvicorn, Pydantic v2, Elasticsearch client, ChromaDB, Sentence-Transformers, OpenCLIP, PyMuPDF, python-docx, python-pptx, OpenCV, InsightFace, onnxruntime
+**Backend:** Python 3.12, FastAPI, Uvicorn, Pydantic v2, Elasticsearch client, ChromaDB, mysql-connector-python, Sentence-Transformers, OpenCLIP, PyMuPDF, python-docx, python-pptx, OpenCV, InsightFace, onnxruntime
 
-**Infrastructure:** Docker Compose, Elasticsearch 8.x, nginx, Apache Tomcat 9 (optional), Apache HTTP Server (optional)
+**Infrastructure:** Docker Compose, Elasticsearch 8.x, MySQL 8.x, nginx, Apache Tomcat 9 (optional), Apache HTTP Server (optional)
 
 ---
 
@@ -310,7 +326,8 @@ AI_Intellegense/
 
 - The `.env` file (containing real secrets) is **gitignored** and never committed
 - Rotate your Groq API key if it was ever exposed
-- Change `JWT_SECRET` and the default admin password before any production deployment
+- Change `JWT_SECRET`, the MySQL password, and the default admin password before any production deployment
+- User passwords are stored in MySQL as **bcrypt hashes** — never in plaintext
 - Face embeddings are stored locally in ChromaDB — no external service
 
 ---

@@ -34,8 +34,9 @@ from services.vector_store import (
     ensure_face_collection_dimension, get_face_collection_stats,
 )
 from services.auth import (
-    ensure_users_index, seed_admin, create_token, decode_token,
+    ensure_users_table, seed_admin, create_token, decode_token,
     authenticate_user, create_user, get_user, list_users, update_user, delete_user,
+    username_exists,
 )
 from services.face_recognition import detect_faces, get_face_embedding
 
@@ -60,8 +61,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 def startup():
     logger.info("Starting DocMind API...")
     ensure_index()
-    ensure_users_index(es)
-    seed_admin(es)
+    ensure_users_table()
+    seed_admin()
     try:
         ensure_image_collection_dimension(512)
     except Exception as e:
@@ -80,7 +81,7 @@ def get_current_user(request: Request):
     payload = decode_token(auth[7:])
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    user = get_user(es, payload.get("user_id", ""))
+    user = get_user(payload.get("user_id", ""))
     if not user or not user.get("is_active"):
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
@@ -113,7 +114,7 @@ def stats():
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    user = authenticate_user(es, req.username, req.password)
+    user = authenticate_user(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_token({"user_id": user["id"], "role": user["role"]})
@@ -128,22 +129,21 @@ def get_me(user: dict = Depends(get_current_user)):
 
 @app.get("/api/users")
 def get_users(user: dict = Depends(require_admin)):
-    return {"users": list_users(es)}
+    return {"users": list_users()}
 
 
 @app.post("/api/users")
 def create_new_user(req: UserCreateRequest, user: dict = Depends(require_admin)):
-    result = es.search(index="docmind_users", body={"query": {"term": {"username": req.username}}})
-    if result["hits"]["total"]["value"] > 0:
+    if username_exists(req.username):
         raise HTTPException(status_code=400, detail="Username already exists")
-    new_user = create_user(es, req.username, req.email, req.full_name, req.password, req.role)
+    new_user = create_user(req.username, req.email, req.full_name, req.password, req.role)
     logger.info(f"User created: {req.username} ({req.role}) by {user['username']}")
     return {"user": new_user}
 
 
 @app.put("/api/users/{user_id}")
 def update_existing_user(user_id: str, req: UserUpdateRequest, current: dict = Depends(require_admin)):
-    updated = update_user(es, user_id, req.model_dump(exclude_unset=True))
+    updated = update_user(user_id, req.model_dump(exclude_unset=True))
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
     logger.info(f"User updated: {user_id} by {current['username']}")
@@ -152,14 +152,14 @@ def update_existing_user(user_id: str, req: UserUpdateRequest, current: dict = D
 
 @app.delete("/api/users/{user_id}")
 def delete_existing_user(user_id: str, current: dict = Depends(require_admin)):
-    target = get_user(es, user_id)
+    target = get_user(user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target["role"] == "admin":
-        admin_count = sum(1 for u in list_users(es) if u["role"] == "admin")
+        admin_count = sum(1 for u in list_users() if u["role"] == "admin")
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last admin")
-    delete_user(es, user_id)
+    delete_user(user_id)
     logger.info(f"User deleted: {user_id} by {current['username']}")
     return {"deleted": True}
 

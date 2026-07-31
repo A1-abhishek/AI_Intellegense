@@ -18,6 +18,25 @@ services:
       retries: 30
       start_period: 20s
 
+  mysql:
+    image: mysql:8.4
+    container_name: docmind-mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootdocmind123
+      - MYSQL_DATABASE=docmind
+      - MYSQL_USER=docmind
+      - MYSQL_PASSWORD=docmind123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -udocmind -pdocmind123 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
   backend:
     build:
       context: ./backend
@@ -25,6 +44,11 @@ services:
     container_name: docmind-backend
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=docmind
+      - MYSQL_PASSWORD=docmind123
+      - MYSQL_DATABASE=docmind
       - GROQ_API_KEY=${GROQ_API_KEY:-your-groq-api-key-here}
       - GROQ_MODEL=openai/gpt-oss-120b
       - JWT_SECRET=${JWT_SECRET:-docmind-secret-key-change-in-production-2026}
@@ -35,6 +59,8 @@ services:
       - backend_logs:/app/logs
     depends_on:
       elasticsearch:
+        condition: service_healthy
+      mysql:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
@@ -56,5 +82,6 @@ services:
 
 volumes:
   es_data:
+  mysql_data:
   chroma_data:
   backend_logs:
