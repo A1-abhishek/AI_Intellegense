@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+*.log
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Environment / secrets
+.env
+.env.txt
+*.env.local
+
+# Data & generated
+chroma_data/
+extracted_images/
+test_clip_image.png
+
+# Deploy artifacts (keep java source only)
+deploy/apache-tomcat-*/
+deploy/tomcat/build/
+deploy/tomcat/classes/
+deploy/nginx/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

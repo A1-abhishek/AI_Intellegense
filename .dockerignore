@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+.env
+*.log
+chroma_data
+__pycache__
+*.pyc
+.git
+.vscode
+.DS_Store
+Thumbs.db
