@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import {
@@ -69,6 +70,7 @@ function HudCard({ label, value, icon: Icon, color, delay }) {
 }
 
 export default function DashboardPage() {
+  usePageLog('Dashboard')
   const { user } = useAuth()
   const { isDark, theme } = useTheme()
   const [stats, setStats] = useState(null)

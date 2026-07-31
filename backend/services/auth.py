@@ -1,4 +1,5 @@
 import os
+import time
 import jwt
 import logging
 import bcrypt
@@ -6,6 +7,7 @@ import mysql.connector
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("docmind.auth")
+db_logger = logging.getLogger("docmind.db")
 
 SECRET_KEY = os.getenv("JWT_SECRET", "docmind-secret-key-change-in-production-2026")
 ALGORITHM = "HS256"
@@ -21,13 +23,47 @@ USERS_TABLE = "users"
 
 
 def _connect():
-    return mysql.connector.connect(
-        host=MYSQL_HOST,
-        port=MYSQL_PORT,
-        user=MYSQL_USER,
-        password=MYSQL_PASSWORD,
-        database=MYSQL_DATABASE,
+    db_logger.info(
+        f"Connecting to MySQL {MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE} as '{MYSQL_USER}'"
     )
+    start = time.perf_counter()
+    try:
+        conn = mysql.connector.connect(
+            host=MYSQL_HOST,
+            port=MYSQL_PORT,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=MYSQL_DATABASE,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        db_logger.info(f"MySQL connection established in {elapsed_ms:.0f}ms")
+        return conn
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        db_logger.error(f"MySQL connection FAILED ({elapsed_ms:.0f}ms): {e}")
+        raise
+
+
+def _sanitize_sql(sql: str) -> str:
+    """Replace multi-line SQL with a single-line compact form for logging."""
+    return " ".join(sql.split())
+
+
+def _run_query(conn, sql, params=None, dictionary=False, sensitive=True):
+    """Execute a query with logging. `sensitive` hides parameter values."""
+    cur = conn.cursor(dictionary=dictionary)
+    display_params = "[REDACTED]" if sensitive else (params if params is not None else "none")
+    db_logger.debug(f"SQL: {_sanitize_sql(sql)} | params={display_params}")
+    start = time.perf_counter()
+    try:
+        cur.execute(sql, params)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        db_logger.debug(f"SQL OK in {elapsed_ms:.0f}ms | rows={cur.rowcount if cur.rowcount >= 0 else 'n/a'}")
+        return cur
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        db_logger.error(f"SQL FAILED in {elapsed_ms:.0f}ms: {_sanitize_sql(sql)} | {e}")
+        raise
 
 
 def get_password_hash(password: str) -> str:
@@ -56,8 +92,8 @@ def decode_token(token: str) -> dict | None:
 def ensure_users_table():
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(
+        _run_query(
+            conn,
             f"""CREATE TABLE IF NOT EXISTS `{USERS_TABLE}` (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(255) NOT NULL UNIQUE,
@@ -71,7 +107,7 @@ def ensure_users_table():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_role (role),
                 INDEX idx_username (username)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
         )
         conn.commit()
         logger.info("Users table ensured")
@@ -82,10 +118,15 @@ def ensure_users_table():
 def seed_admin():
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM `{USERS_TABLE}` WHERE role = %s", ("admin",))
-        if cur.fetchone()[0] == 0:
-            cur.execute(
+        count_cur = _run_query(
+            conn,
+            f"SELECT COUNT(*) FROM `{USERS_TABLE}` WHERE role = %s",
+            ("admin",),
+            sensitive=False,
+        )
+        if count_cur.fetchone()[0] == 0:
+            _run_query(
+                conn,
                 f"""INSERT INTO `{USERS_TABLE}`
                     (username, email, full_name, password_hash, role, avatar_color, is_active)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)""",
@@ -108,8 +149,12 @@ def seed_admin():
 def username_exists(username: str) -> bool:
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(f"SELECT id FROM `{USERS_TABLE}` WHERE username = %s", (username,))
+        cur = _run_query(
+            conn,
+            f"SELECT id FROM `{USERS_TABLE}` WHERE username = %s",
+            (username,),
+            sensitive=False,
+        )
         return cur.fetchone() is not None
     finally:
         conn.close()
@@ -122,8 +167,8 @@ def create_user(username: str, email: str, full_name: str,
 
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(
+        cur = _run_query(
+            conn,
             f"""INSERT INTO `{USERS_TABLE}`
                 (username, email, full_name, password_hash, role, avatar_color, is_active)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)""",
@@ -139,6 +184,7 @@ def create_user(username: str, email: str, full_name: str,
         )
         conn.commit()
         user_id = cur.lastrowid
+        db_logger.info(f"User created: id={user_id} username={username} role={role}")
         return get_user(str(user_id))
     finally:
         conn.close()
@@ -147,16 +193,21 @@ def create_user(username: str, email: str, full_name: str,
 def authenticate_user(username: str, password: str) -> dict | None:
     conn = _connect()
     try:
-        cur = conn.cursor(dictionary=True)
-        cur.execute(
+        cur = _run_query(
+            conn,
             f"SELECT * FROM `{USERS_TABLE}` WHERE username = %s AND is_active = 1",
             (username,),
+            dictionary=True,
+            sensitive=False,
         )
         user = cur.fetchone()
         if not user:
+            logger.warning(f"Login failed: unknown or inactive user '{username}'")
             return None
         if not verify_password(password, user["password_hash"]):
+            logger.warning(f"Login failed: wrong password for '{username}'")
             return None
+        logger.info(f"Login OK: user '{username}' (role={user['role']})")
         return _strip_secret(user)
     finally:
         conn.close()
@@ -165,8 +216,13 @@ def authenticate_user(username: str, password: str) -> dict | None:
 def get_user(user_id: str) -> dict | None:
     conn = _connect()
     try:
-        cur = conn.cursor(dictionary=True)
-        cur.execute(f"SELECT * FROM `{USERS_TABLE}` WHERE id = %s", (int(user_id),))
+        cur = _run_query(
+            conn,
+            f"SELECT * FROM `{USERS_TABLE}` WHERE id = %s",
+            (int(user_id),),
+            dictionary=True,
+            sensitive=False,
+        )
         user = cur.fetchone()
         if not user:
             return None
@@ -180,8 +236,12 @@ def get_user(user_id: str) -> dict | None:
 def list_users() -> list[dict]:
     conn = _connect()
     try:
-        cur = conn.cursor(dictionary=True)
-        cur.execute(f"SELECT * FROM `{USERS_TABLE}` ORDER BY created_at DESC")
+        cur = _run_query(
+            conn,
+            f"SELECT * FROM `{USERS_TABLE}` ORDER BY created_at DESC",
+            dictionary=True,
+            sensitive=False,
+        )
         return [_strip_secret(u) for u in cur.fetchall()]
     finally:
         conn.close()
@@ -214,8 +274,7 @@ def update_user(user_id: str, data: dict) -> dict | None:
 
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(sql, tuple(values))
+        _run_query(conn, sql, tuple(values), sensitive=False)
         conn.commit()
         return get_user(user_id)
     finally:
@@ -225,10 +284,15 @@ def update_user(user_id: str, data: dict) -> dict | None:
 def delete_user(user_id: str) -> bool:
     conn = _connect()
     try:
-        cur = conn.cursor()
-        cur.execute(f"DELETE FROM `{USERS_TABLE}` WHERE id = %s", (int(user_id),))
+        cur = _run_query(
+            conn,
+            f"DELETE FROM `{USERS_TABLE}` WHERE id = %s",
+            (int(user_id),),
+        )
         conn.commit()
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+        db_logger.info(f"User deleted: id={user_id} success={deleted}")
+        return deleted
     except (ValueError, mysql.connector.Error):
         return False
     finally:

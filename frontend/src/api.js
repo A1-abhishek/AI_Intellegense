@@ -1,6 +1,10 @@
+import { log } from './logger'
+
 const BASE = import.meta.env.VITE_API_BASE || '/api';
 
 async function request(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const start = performance.now();
   const token = localStorage.getItem('docmind_token');
   const headers = { ...options.headers };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -8,18 +12,26 @@ async function request(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
+  log.debug('api', `${method} ${path}`);
+
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
     localStorage.removeItem('docmind_token');
+    log.warn('api', `${method} ${path} -> 401 session expired, redirecting to /login`);
     window.location.href = '/login';
     throw new Error('Session expired');
   }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+    const duration = Math.round(performance.now() - start);
+    log.error('api', `${method} ${path} -> ${res.status} ${err.detail || ''} (${duration}ms)`);
     throw new Error(err.detail || `HTTP ${res.status}`);
   }
+
+  const duration = Math.round(performance.now() - start);
+  log.info('api', `${method} ${path} -> ${res.status} (${duration}ms)`);
   return res.json();
 }
 
@@ -51,12 +63,20 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
     const token = localStorage.getItem('docmind_token');
+    const start = performance.now();
+    log.debug('upload', `POST /documents/upload file=${file.name} size=${file.size} embed=${embed}`);
     const res = await fetch(`${BASE}/documents/upload?embed=${embed}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     });
-    if (!res.ok) throw new Error('Upload failed');
+    if (!res.ok) {
+      const duration = Math.round(performance.now() - start);
+      log.error('upload', `upload failed ${file.name} -> ${res.status} (${duration}ms)`);
+      throw new Error('Upload failed');
+    }
+    const duration = Math.round(performance.now() - start);
+    log.info('upload', `upload OK ${file.name} (${duration}ms)`);
     return res.json();
   },
 
@@ -89,6 +109,7 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
     const token = localStorage.getItem('docmind_token');
+    log.debug('upload', `POST /documents/${docId}/extract-from-upload file=${file.name}`);
     const res = await fetch(`${BASE}/documents/${docId}/extract-from-upload`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},

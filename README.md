@@ -332,6 +332,47 @@ AI_Intellegense/
 
 ---
 
+## Logging & Debugging
+
+DocMind ships with directory-wise logging for every layer — **backend**, **database**, **Elasticsearch**, **LLM** and **frontend** — so any issue can be traced by component.
+
+### Where logs live
+
+All logs are written to `backend/logs/` (each file rotates at 5 MB, keeping 3 backups):
+
+| Log file | What it captures |
+|---|---|
+| `app.log` | Combined log of every backend module (INFO+) |
+| `error.log` | Every WARNING / ERROR / CRITICAL from all modules |
+| `http.log` | Every HTTP request — method, path, status code, duration (ms), client IP |
+| `auth.log` | Login, logout, user create/update/delete, JWT |
+| `db.log` | MySQL connections + every SQL query with timing and row counts |
+| `es.log` | Elasticsearch operations — index create/recreate, document get/index/delete/search |
+| `llm.log` | Groq LLM calls — model, input/output char counts, duration, retries |
+| `documents.log` | Text extraction + chunking for documents |
+| `images.log` | Image processing, metadata, OCR (RapidOCR / Tesseract / EasyOCR) |
+| `entities.log` | Entity extraction (LLM + regex fallback) |
+| `faces.log` | Face recognition pipeline (detection, embeddings, search) |
+| `embeddings.log` | Embedding model loads + encode operations |
+| `vector_store.log` | ChromaDB collection operations |
+| `frontend.log` | Browser-side logs (page visits, API calls, uncaught errors) |
+| `config.log` | Startup / configuration, Elasticsearch + LLM client setup |
+
+### How to debug a problem
+
+1. **Frontend/UI issue?** → open `frontend.log` (browser logs are pushed via `POST /api/logs`) or use the browser DevTools console (every page logs `Page mounted: <name>`, navigation, and API calls).
+2. **Backend error?** → check `error.log` for the exception stack, then the relevant module file for the full trace.
+3. **HTTP endpoint not responding?** → `http.log` shows every request with status and duration.
+4. **Database problem?** → `db.log` shows every SQL statement, its params, timing and affected rows.
+5. **AI features failing?** → `llm.log` shows model, prompt size, response size, duration and retries.
+
+### Adding new logging
+
+- **Backend**: use `logger = logging.getLogger("docmind.<module>")` and log with the standard `logging` API — the message is automatically routed to the right file.
+- **Frontend**: import `log` from `src/logger.js` (`log.info('category', 'message')`) or call `usePageLog('PageName')` in any page component.
+
+---
+
 ## License
 
 This project is for educational and demonstration purposes.

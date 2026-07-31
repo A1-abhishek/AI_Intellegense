@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { Upload as UploadIcon, Loader2, Image, FileText, CheckCircle, Shield } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function UploadPage() {
+  usePageLog('Upload')
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState(null)

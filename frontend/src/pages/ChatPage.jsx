@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { MessageCircle, Send, Loader2, CheckCircle, Trash2, Bot, User, Terminal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function ChatPage() {
+  usePageLog('KnowledgeBase')
   const [docs, setDocs] = useState([])
   const [selectedDocs, setSelectedDocs] = useState([])
   const [useAll, setUseAll] = useState(true)

@@ -1,4 +1,5 @@
 import logging
+import time
 import traceback
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Depends, Body
@@ -42,6 +43,35 @@ from services.face_recognition import detect_faces, get_face_embedding
 
 app = FastAPI(title="DocMind API", version="2.0.0")
 
+http_logger = logging.getLogger("docmind.http")
+frontend_logger = logging.getLogger("docmind.frontend")
+es_logger = logging.getLogger("docmind.es")
+
+
+def _es_log(action: str, detail: str = "", **extra):
+    extra_str = " " + " ".join(f"{k}={v}" for k, v in extra.items()) if extra else ""
+    es_logger.info(f"{action} {detail}{extra_str}")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    client_ip = request.client.host if request.client else "?"
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        http_logger.error(
+            f"{request.method} {request.url.path} -> 500 ({elapsed_ms:.0f}ms) [{client_ip}] : {e}"
+        )
+        raise
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    http_logger.info(
+        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed_ms:.0f}ms) [{client_ip}]"
+    )
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,6 +79,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/api/logs")
+async def ingest_frontend_log(payload: dict = Body(...)):
+    """Receive log lines from the browser and persist them to logs/frontend.log."""
+    level = (payload.get("level") or "info").lower()
+    message = str(payload.get("message") or "")[:2000]
+    category = str(payload.get("category") or "app")[:100]
+    url = str(payload.get("url") or "")[:500]
+    ts = str(payload.get("ts") or datetime.now(timezone.utc).isoformat())
+
+    log_method = {
+        "debug": frontend_logger.debug,
+        "info": frontend_logger.info,
+        "warn": frontend_logger.warning,
+        "warning": frontend_logger.warning,
+        "error": frontend_logger.error,
+        "critical": frontend_logger.critical,
+    }.get(level, frontend_logger.info)
+
+    log_method(f"[{category}] {message} (url={url}, client_ts={ts})")
+    return {"ok": True}
 
 
 @app.exception_handler(Exception)
@@ -184,6 +236,7 @@ def create_document(doc: DocumentCreate):
         "has_embeddings": False,
     }
     result = es.index(index=INDEX_NAME, body=body)
+    _es_log("index", f"document '{doc.title}'", doc_id=result["_id"], content_type=doc.content_type)
     logger.info(f"Document created: {result['_id']}")
     return {"id": result["_id"], **body}
 
@@ -210,6 +263,7 @@ def list_documents(
         from_=start,
         size=size,
     )
+    _es_log("search", "list documents", total=result["hits"]["total"]["value"], page=page, size=size)
     hits = [{"id": h["_id"], **h["_source"]} for h in result["hits"]["hits"]]
     return {
         "documents": hits,
@@ -223,8 +277,10 @@ def list_documents(
 def get_document(doc_id: str):
     try:
         result = es.get(index=INDEX_NAME, id=doc_id)
+        _es_log("get", "document", doc_id=doc_id)
         return {"id": result["_id"], **result["_source"]}
     except NotFoundError:
+        _es_log("get", "document NOT FOUND", doc_id=doc_id)
         raise HTTPException(status_code=404, detail="Document not found")
 
 
@@ -246,9 +302,11 @@ def delete_document(doc_id: str):
     try:
         es.delete(index=INDEX_NAME, id=doc_id)
         delete_doc_chunks(doc_id)
+        _es_log("delete", "document", doc_id=doc_id)
         logger.info(f"Document deleted: {doc_id}")
         return {"deleted": True}
     except NotFoundError:
+        _es_log("delete", "document NOT FOUND", doc_id=doc_id)
         raise HTTPException(status_code=404, detail="Document not found")
 
 
@@ -435,6 +493,7 @@ def search_documents(sq: SearchQuery):
         query["bool"]["filter"] = [{"terms": {"tags": sq.tags}}]
 
     result = es.search(index=INDEX_NAME, body={"query": query}, size=sq.size)
+    _es_log("search", "text search", query=sq.query[:80], total=result["hits"]["total"]["value"], size=sq.size)
     return {
         "results": [{"id": h["_id"], **h["_source"]} for h in result["hits"]["hits"]],
         "total": result["hits"]["total"]["value"],

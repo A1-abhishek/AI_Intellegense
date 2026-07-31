@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { Languages, Loader2, ArrowRight, Copy, Check, Globe } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 
@@ -24,6 +25,7 @@ const LANGUAGES = [
 ]
 
 export default function TranslatePage() {
+  usePageLog('Translate')
   const [docs, setDocs] = useState([])
   const [selectedDoc, setSelectedDoc] = useState('')
   const [content, setContent] = useState('')

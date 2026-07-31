@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { Brain, Loader2, Send, CheckCircle, Bot, User, Terminal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function AskPage() {
+  usePageLog('AskQuestion')
   const [docs, setDocs] = useState([])
   const [question, setQuestion] = useState('')
   const [selectedDocs, setSelectedDocs] = useState([])

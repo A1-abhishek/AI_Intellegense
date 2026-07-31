@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import {
@@ -12,6 +13,7 @@ import EntitiesPanel from '../components/EntitiesPanel'
 import ImageGallery from '../components/ImageGallery'
 
 export default function DocumentsPage() {
+  usePageLog('Documents')
   const { isEditor } = useAuth()
   const { theme, isDark } = useTheme()
   const [docs, setDocs] = useState([])

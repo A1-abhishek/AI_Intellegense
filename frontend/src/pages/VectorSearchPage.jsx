@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { Dna, Loader2, Search, Image, FileText, Layers, Radar } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function VectorSearchPage() {
+  usePageLog('VectorSearch')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)

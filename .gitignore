@@ -21,6 +21,7 @@ dist/
 chroma_data/
 extracted_images/
 test_clip_image.png
+backend/logs/
 
 # Deploy artifacts (keep java source only)
 deploy/apache-tomcat-*/

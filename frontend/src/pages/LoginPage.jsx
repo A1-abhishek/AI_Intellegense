@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { log } from '../logger'
 import { Brain, Eye, EyeOff, Shield, Sun, Moon, Lock, User, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -125,12 +126,15 @@ export default function LoginPage() {
     }
 
     try {
+      log.info('auth', `Login attempt: ${username}`)
       await login(username, password)
       setSuccess(true)
+      log.info('auth', `Login success: ${username}`)
       await new Promise(r => setTimeout(r, 800))
       toast.success('ACCESS GRANTED')
     } catch (err) {
       setFail(true)
+      log.error('auth', `Login failed for ${username}: ${err.message || 'invalid credentials'}`)
       setAuthLines(prev => [...prev, { text: `> ACCESS DENIED // ${err.message || 'INVALID CREDENTIALS'}`, color: 'var(--danger)' }])
       await new Promise(r => setTimeout(r, 1500))
       toast.error(err.message || 'Invalid credentials')

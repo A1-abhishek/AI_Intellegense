@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { useTheme } from '../context/ThemeContext'
 import {
   Users, Search, X, Loader2, Eye, ChevronLeft, ChevronRight,
@@ -52,6 +53,7 @@ function ScanReticle({ face, imgW, imgH, selected }) {
 }
 
 export default function FaceGalleryPage() {
+  usePageLog('FaceGallery')
   const { theme } = useTheme()
   const isDark = theme === 'dark'
   const [images, setImages] = useState([])

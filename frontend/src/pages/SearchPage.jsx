@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { Search as SearchIcon, Loader2, FileText, Clock, Database } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function SearchPage() {
+  usePageLog('Search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [total, setTotal] = useState(0)

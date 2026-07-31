@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { BookOpen, Loader2, Copy, Check, FileSearch } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from '../context/ThemeContext'
-
+ 
 export default function SummarizePage() {
+  usePageLog('Summarize')
   const [docs, setDocs] = useState([])
   const [selectedDoc, setSelectedDoc] = useState('')
   const [customContent, setCustomContent] = useState('')

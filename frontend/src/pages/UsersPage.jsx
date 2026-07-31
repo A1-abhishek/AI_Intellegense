@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { api } from '../api'
+import { usePageLog } from '../logger'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import {
@@ -8,6 +9,7 @@ import {
 } from 'lucide-react'
 
 export default function UsersPage() {
+  usePageLog('Users')
   const { user: currentUser } = useAuth()
   const { isDark } = useTheme()
   const [users, setUsers] = useState([])

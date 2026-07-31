@@ -9,6 +9,8 @@ from openai import OpenAI
 load_dotenv()
 
 logger = logging.getLogger("docmind.config")
+llm_logger = logging.getLogger("docmind.llm")
+es_logger = logging.getLogger("docmind.es")
 
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY", "")
@@ -16,14 +18,14 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 INDEX_NAME = "documents"
 
-logger.info(f"Connecting to Elasticsearch at {ELASTICSEARCH_URL}")
+es_logger.info(f"Connecting to Elasticsearch at {ELASTICSEARCH_URL}")
 es = Elasticsearch(
     ELASTICSEARCH_URL,
     api_key=ELASTICSEARCH_API_KEY if ELASTICSEARCH_API_KEY else None,
 )
 
 if GROQ_API_KEY:
-    logger.info(f"Groq client configured with model: {GROQ_MODEL}")
+    llm_logger.info(f"Groq client configured with model: {GROQ_MODEL}")
     llm_client = OpenAI(
         api_key=GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1",
@@ -31,7 +33,7 @@ if GROQ_API_KEY:
         max_retries=0,
     )
 else:
-    logger.warning("GROQ_API_KEY not set — AI features disabled")
+    llm_logger.warning("GROQ_API_KEY not set — AI features disabled")
     llm_client = None
 
 
@@ -41,6 +43,13 @@ def llm_chat(messages, model=None, max_tokens=2048, temperature=0.7, max_retries
         raise RuntimeError("LLM client not configured")
     model = model or GROQ_MODEL
     last_error = None
+    input_chars = sum(len(m.get("content", "") or "") for m in messages)
+
+    llm_logger.info(
+        f"LLM request: model={model} messages={len(messages)} "
+        f"input_chars={input_chars} max_tokens={max_tokens} temperature={temperature}"
+    )
+    start = time.perf_counter()
 
     for attempt in range(max_retries):
         try:
@@ -50,11 +59,17 @@ def llm_chat(messages, model=None, max_tokens=2048, temperature=0.7, max_retries
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            llm_logger.info(
+                f"LLM response: model={model} output_chars={len(content)} "
+                f"duration_ms={elapsed_ms:.0f} attempts={attempt + 1}"
+            )
+            return content
         except httpx.ReadError as e:
             last_error = e
             wait = (2 ** attempt) + 1
-            logger.warning(f"SSL/Network error (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait}s...")
+            llm_logger.warning(f"SSL/Network error (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait}s...")
             time.sleep(wait)
             _refresh_llm_client()
         except Exception as e:
@@ -70,16 +85,17 @@ def llm_chat(messages, model=None, max_tokens=2048, temperature=0.7, max_retries
                             wait = int(float(hdr)) + 1
                         except (ValueError, TypeError):
                             wait = 10
-                logger.warning(f"Rate limited (attempt {attempt+1}/{max_retries}). Waiting {wait}s...")
+                llm_logger.warning(f"Rate limited (attempt {attempt+1}/{max_retries}). Waiting {wait}s...")
                 time.sleep(wait)
             else:
                 last_error = e
                 wait = (2 ** attempt) + 1
-                logger.warning(f"LLM error {status}: {e} (attempt {attempt+1}/{max_retries}). Retrying in {wait}s...")
+                llm_logger.warning(f"LLM error {status}: {e} (attempt {attempt+1}/{max_retries}). Retrying in {wait}s...")
                 time.sleep(wait)
                 _refresh_llm_client()
 
-    logger.error(f"LLM call failed after {max_retries} attempts: {last_error}")
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    llm_logger.error(f"LLM call failed after {max_retries} attempts ({elapsed_ms:.0f}ms): {last_error}")
     raise last_error
 
 
@@ -95,9 +111,9 @@ def _refresh_llm_client():
             timeout=httpx.Timeout(60.0, connect=10.0),
             max_retries=0,
         )
-        logger.info("Refreshed LLM client")
+        llm_logger.info("Refreshed LLM client")
     except Exception as e:
-        logger.error(f"Failed to refresh LLM client: {e}")
+        llm_logger.error(f"Failed to refresh LLM client: {e}")
 
 
 MAPPINGS = {
@@ -166,14 +182,14 @@ def ensure_index():
             props = list(mapping.get(INDEX_NAME, {}).get("mappings", {}).get("properties", {}).keys())
             required = set(MAPPINGS["mappings"]["properties"].keys())
             if not required.issubset(set(props)):
-                logger.warning(f"Index '{INDEX_NAME}' missing fields {required - set(props)}, recreating...")
+                es_logger.warning(f"Index '{INDEX_NAME}' missing fields {required - set(props)}, recreating...")
                 es.indices.delete(index=INDEX_NAME)
                 es.indices.create(index=INDEX_NAME, body=MAPPINGS)
-                logger.info(f"Index '{INDEX_NAME}' recreated with full mappings")
+                es_logger.info(f"Index '{INDEX_NAME}' recreated with full mappings")
             else:
-                logger.info(f"Index '{INDEX_NAME}' mappings OK")
+                es_logger.info(f"Index '{INDEX_NAME}' mappings OK")
         else:
             es.indices.create(index=INDEX_NAME, body=MAPPINGS)
-            logger.info(f"Index '{INDEX_NAME}' created")
+            es_logger.info(f"Index '{INDEX_NAME}' created")
     except Exception as e:
-        logger.error(f"ensure_index failed: {e}", exc_info=True)
+        es_logger.error(f"ensure_index failed: {e}", exc_info=True)

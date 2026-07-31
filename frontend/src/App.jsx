@@ -1,6 +1,7 @@
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { useTheme } from './context/ThemeContext'
+import { log } from './logger'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import DocumentsPage from './pages/DocumentsPage'
@@ -49,12 +50,39 @@ function Clock() {
   )
 }
 
+const routeNames = {
+  '/': 'Documents',
+  '/dashboard': 'Dashboard',
+  '/upload': 'Upload',
+  '/search': 'Search',
+  '/vector-search': 'Vector Search',
+  '/summarize': 'Summarize',
+  '/ask': 'Ask Question',
+  '/translate': 'Translate',
+  '/chat': 'Knowledge Base',
+  '/faces': 'Face Gallery',
+  '/users': 'Users',
+  '/login': 'Login',
+}
+
 export default function App() {
   const { user, loading, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const isDark = theme === 'dark'
+
+  useEffect(() => {
+    const page = routeNames[location.pathname] || location.pathname
+    log.info('navigation', `Navigated to page: ${page}`, { path: location.pathname })
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (user) {
+      log.info('auth', `App initialized for user: ${user.username} (role=${user.role})`)
+    }
+  }, [user])
 
   if (loading) {
     return (
@@ -169,7 +197,7 @@ export default function App() {
             </div>
           </div>
           <button
-            onClick={() => { logout(); navigate('/login') }}
+            onClick={() => { log.info('auth', `User logged out: ${user.username}`); logout(); navigate('/login') }}
             className="sidebar-item w-full"
             style={{ color: isDark ? 'rgba(255,51,102,0.6)' : undefined }}
           >
