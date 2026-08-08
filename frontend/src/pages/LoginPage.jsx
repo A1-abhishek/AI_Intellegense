@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { log } from '../logger'
-import { Brain, Eye, EyeOff, Shield, Sun, Moon, Lock, User, Fingerprint } from 'lucide-react'
+import { Brain, Eye, EyeOff, Shield, Lock, User, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_MESSAGES = [
@@ -96,7 +96,7 @@ function TerminalLine({ text, delay, color }) {
 
 export default function LoginPage() {
   const { login } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -149,16 +149,6 @@ export default function LoginPage() {
 
   return (
     <div className={`min-h-screen flex items-center justify-center p-4 relative overflow-hidden ${isDark ? 'hud-grid-bg' : ''}`}>
-      {/* Theme toggle */}
-      <button
-        onClick={toggleTheme}
-        className="absolute top-4 right-4 p-2.5 rounded-xl z-20 transition-all duration-300"
-        style={{ background: 'var(--surface-1)', color: 'var(--text-secondary)', border: '1px solid var(--border-0)' }}
-        title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      >
-        {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-      </button>
-
       {/* Background orbs */}
       {!isDark && (
         <>

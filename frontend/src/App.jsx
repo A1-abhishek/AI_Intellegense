@@ -17,7 +17,7 @@ import FaceGalleryPage from './pages/FaceGalleryPage'
 import {
   Brain, LayoutDashboard, FileText, Upload, Search, Dna,
   BookOpen, MessageCircle, Languages, Users, LogOut, Loader2, Menu, X,
-  Sun, Moon, ScanFace, Shield, Radio, Activity
+  ScanFace, Shield
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
@@ -37,19 +37,6 @@ const navItems = [
   { to: '/users', label: 'Users', icon: Users, roles: ['admin'] },
 ]
 
-function Clock() {
-  const [time, setTime] = useState(new Date())
-  useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
-  return (
-    <span className="font-mono tabular-nums">
-      {time.toLocaleTimeString('en-US', { hour12: false })}
-    </span>
-  )
-}
-
 const routeNames = {
   '/': 'Documents',
   '/dashboard': 'Dashboard',
@@ -67,7 +54,7 @@ const routeNames = {
 
 export default function App() {
   const { user, loading, logout } = useAuth()
-  const { theme, toggleTheme } = useTheme()
+  const { theme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -227,46 +214,17 @@ export default function App() {
 
           <div className="flex-1" />
 
-          {isDark ? (
-            <div className="flex items-center gap-5 text-[10px] font-mono uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>
-              <div className="flex items-center gap-1.5">
-                <Clock />
-              </div>
-              <div className="w-px h-3" style={{ background: 'rgba(0,255,136,0.1)' }} />
-              <div className="flex items-center gap-1.5">
-                <Radio className="w-3 h-3" style={{ color: 'var(--accent)' }} />
-                <span>SYS:ONLINE</span>
-              </div>
-              <div className="w-px h-3" style={{ background: 'rgba(0,255,136,0.1)' }} />
-              <div className="flex items-center gap-1.5">
-                <Activity className="w-3 h-3" style={{ color: 'var(--accent)' }} />
-                <span>FRS:ACTIVE</span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-              <div className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-              System Online
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <div className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+            System Online
+          </div>
 
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl transition-all duration-300"
-            style={{ color: 'var(--text-secondary)' }}
-            title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-          >
-            {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-
-          {isDark && (
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-sm" style={{ background: 'rgba(0,255,136,0.04)', border: '1px solid rgba(0,255,136,0.08)' }}>
-              <Shield className="w-3 h-3" style={{ color: 'var(--accent)' }} />
-              <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
-                {user.role}
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border" style={{ background: 'var(--accent-soft)', borderColor: 'var(--border-hover)' }}>
+            <Shield className="w-3 h-3" style={{ color: 'var(--accent)' }} />
+            <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: 'var(--accent)' }}>
+              {user.role}
+            </span>
+          </div>
         </div>
 
         {/* Page content */}
