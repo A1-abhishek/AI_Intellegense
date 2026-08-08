@@ -14,10 +14,11 @@ import TranslatePage from './pages/TranslatePage'
 import ChatPage from './pages/ChatPage'
 import UsersPage from './pages/UsersPage'
 import FaceGalleryPage from './pages/FaceGalleryPage'
+import InvestigationPage from './pages/InvestigationPage'
 import {
   Brain, LayoutDashboard, FileText, Upload, Search, Dna,
   BookOpen, MessageCircle, Languages, Users, LogOut, Loader2, Menu, X,
-  ScanFace, Shield
+  ScanFace, Shield, Network
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
@@ -33,6 +34,7 @@ const navItems = [
   { to: '/translate', label: 'Translate', icon: Languages, roles: ['admin', 'editor'] },
   { to: '/chat', label: 'Knowledge Base', icon: MessageCircle, roles: ['admin', 'editor', 'viewer'] },
   { to: '/faces', label: 'Face Gallery', icon: ScanFace, roles: ['admin', 'editor', 'viewer'] },
+  { to: '/intel', label: 'Investigation', icon: Network, roles: ['admin', 'editor', 'viewer'] },
   { divider: true, roles: ['admin'], label: 'ADMIN' },
   { to: '/users', label: 'Users', icon: Users, roles: ['admin'] },
 ]
@@ -48,6 +50,7 @@ const routeNames = {
   '/translate': 'Translate',
   '/chat': 'Knowledge Base',
   '/faces': 'Face Gallery',
+  '/intel': 'Investigation',
   '/users': 'Users',
   '/login': 'Login',
 }
@@ -240,6 +243,7 @@ export default function App() {
             <Route path="/translate" element={<TranslatePage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/faces" element={<FaceGalleryPage />} />
+            <Route path="/intel" element={<InvestigationPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="*" element={<DashboardPage />} />
           </Routes>

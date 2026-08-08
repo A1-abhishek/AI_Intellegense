@@ -302,6 +302,8 @@ def delete_document(doc_id: str):
     try:
         es.delete(index=INDEX_NAME, id=doc_id)
         delete_doc_chunks(doc_id)
+        delete_face_embeddings(doc_id)
+        delete_extracted_images(doc_id)
         _es_log("delete", "document", doc_id=doc_id)
         logger.info(f"Document deleted: {doc_id}")
         return {"deleted": True}
@@ -404,10 +406,12 @@ async def _handle_image_upload(data: bytes, filename: str, do_embed: bool):
     try:
         faces = detect_faces(data)
         if faces:
-            add_face_embeddings(doc_id, faces)
+            add_face_embeddings(doc_id, faces, source_image=filename)
             face_info = [{"face_id": f["face_id"], "bbox": f["bbox"],
                           "confidence": f["confidence"], "age": f["age"],
-                          "gender": f["gender"]} for f in faces]
+                          "gender": f["gender"], "source_image": filename,
+                          "img_width": img_meta.get("width", 0),
+                          "img_height": img_meta.get("height", 0)} for f in faces]
             es.update(index=INDEX_NAME, id=doc_id, body={"doc": {
                 "has_faces": True, "face_count": len(faces),
                 "face_details": face_info,
@@ -473,7 +477,100 @@ async def _handle_doc_upload(data: bytes, filename: str, content_type: str, do_e
         except Exception as e:
             logger.error(f"Embedding failed for {doc_id}: {e}", exc_info=True)
 
+    # Auto-extract embedded images (photos in PDF/DOCX/PPTX) and detect faces
+    try:
+        images = extract_images_from_doc(data, filename, doc_id)
+        if images:
+            es.update(
+                index=INDEX_NAME, id=doc_id,
+                body={"doc": {"extracted_images": images, "has_extracted_images": True}},
+            )
+            body["extracted_images"] = images
+            body["has_extracted_images"] = True
+            logger.info(f"Auto-extracted {len(images)} embedded images for {doc_id}")
+        else:
+            logger.info(f"No embedded images found in {filename}")
+    except Exception as e:
+        logger.error(f"Auto image extraction failed for {doc_id}: {e}", exc_info=True)
+
+    _extract_faces_from_doc_upload(doc_id, images, body, filename)
+
+    # Auto-run full intelligence extraction (entities/tags/summary) for linkage UI
+    try:
+        intel = _run_full_intelligence(doc_id, text)
+        if intel:
+            update_fields = {}
+            if intel.get("entities"):
+                update_fields["entities"] = intel["entities"]
+                update_fields["has_entities"] = True
+            if intel.get("tags"):
+                update_fields["tags"] = intel["tags"]
+            if intel.get("summary"):
+                update_fields["ai_summary"] = intel["summary"]
+            if update_fields:
+                es.update(index=INDEX_NAME, id=doc_id, body={"doc": update_fields})
+                body.update(update_fields)
+    except Exception as e:
+        logger.error(f"Auto intelligence extraction failed for {doc_id}: {e}", exc_info=True)
+
     return {"id": doc_id, **body}
+
+
+def _extract_faces_from_doc_upload(doc_id: str, images: list, body: dict, filename: str):
+    """Detect faces in document-embedded images and store them in the face gallery."""
+    if not images:
+        return
+
+    total_faces = 0
+    all_face_info = []
+    try:
+        for img in images:
+            img_filename = img["filename"]
+            img_path = IMAGES_DIR / doc_id / img_filename
+            if not img_path.exists():
+                continue
+            try:
+                image_bytes = img_path.read_bytes()
+            except Exception as e:
+                logger.warning(f"Failed to read embedded image {img_filename}: {e}")
+                continue
+
+            try:
+                faces = detect_faces(image_bytes)
+            except Exception as e:
+                logger.warning(f"Face detection failed for embedded image {img_filename}: {e}")
+                continue
+
+            if not faces:
+                continue
+
+            add_face_embeddings(doc_id, faces, source_image=img_filename)
+            for f in faces:
+                all_face_info.append({
+                    "face_id": f["face_id"],
+                    "bbox": f["bbox"],
+                    "confidence": f["confidence"],
+                    "age": f["age"],
+                    "gender": f["gender"],
+                    "source_image": img_filename,
+                    "img_width": img.get("width", 0),
+                    "img_height": img.get("height", 0),
+                })
+                total_faces += 1
+    except Exception as e:
+        logger.error(f"Face extraction from document failed: {e}", exc_info=True)
+
+    if total_faces:
+        try:
+            es.update(index=INDEX_NAME, id=doc_id, body={"doc": {
+                "has_faces": True, "face_count": total_faces, "face_details": all_face_info,
+            }})
+            body["has_faces"] = True
+            body["face_count"] = total_faces
+            body["face_details"] = all_face_info
+            logger.info(f"FRS: {total_faces} face(s) auto-extracted from document {doc_id}")
+        except Exception as e:
+            logger.error(f"Failed to save document face details: {e}")
 
 
 # ── Search ───────────────────────────────────────────────────────
@@ -1087,6 +1184,32 @@ def full_intelligence_extract(req: SummarizeRequest):
     else:
         raise HTTPException(status_code=400, detail="Provide doc_id or content")
 
+    intel = _run_full_intelligence(req.doc_id, text)
+
+    if req.doc_id and (intel["entities"] or intel["tags"] or intel["summary"]):
+        update_fields = {}
+        if intel["entities"]:
+            update_fields["entities"] = intel["entities"]
+            update_fields["has_entities"] = True
+        if intel["tags"]:
+            update_fields["tags"] = intel["tags"]
+        if intel["summary"]:
+            update_fields["ai_summary"] = intel["summary"]
+        try:
+            es.update(index=INDEX_NAME, id=req.doc_id, body={"doc": update_fields})
+        except Exception as e:
+            logger.error(f"Failed to update doc: {e}")
+
+    return {
+        "doc_id": req.doc_id,
+        "entities": intel["entities"],
+        "tags": intel["tags"],
+        "summary": intel["summary"],
+    }
+
+
+def _run_full_intelligence(doc_id: str, text: str) -> dict:
+    """Shared entity/tag/summary extraction used by full-extract and upload pipeline."""
     entities = {}
     tags = []
     summary = ""
@@ -1118,23 +1241,7 @@ def full_intelligence_extract(req: SummarizeRequest):
     else:
         entities = extract_entities_regex(text)
 
-    if req.doc_id:
-        update_fields = {"entities": entities, "has_entities": True}
-        if tags:
-            update_fields["tags"] = tags
-        if summary:
-            update_fields["ai_summary"] = summary
-        try:
-            es.update(index=INDEX_NAME, id=req.doc_id, body={"doc": update_fields})
-        except Exception as e:
-            logger.error(f"Failed to update doc: {e}")
-
-    return {
-        "doc_id": req.doc_id,
-        "entities": entities,
-        "tags": tags,
-        "summary": summary,
-    }
+    return {"entities": entities, "tags": tags, "summary": summary}
 
 
 @app.post("/api/documents/{doc_id}/extract-from-upload")
@@ -1259,10 +1366,16 @@ def face_search(req: FaceSearchRequest):
     enriched = []
     for m in matches:
         m_doc_id = m["metadata"]["doc_id"]
+        source_image = m["metadata"].get("source_image", "")
         try:
             src = es.get(index=INDEX_NAME, id=m_doc_id)["_source"]
-            m["filename"] = src.get("title", "unknown")
-            m["image_url"] = f"/api/extracted-images/{m_doc_id}/{m['filename']}"
+            if source_image:
+                m["filename"] = source_image
+                m["image_url"] = f"/api/extracted-images/{m_doc_id}/{source_image}"
+            else:
+                title = src.get("title", "unknown")
+                m["filename"] = title
+                m["image_url"] = f"/api/extracted-images/{m_doc_id}/{title}"
         except Exception:
             m["filename"] = "unknown"
         enriched.append(m)
@@ -1277,7 +1390,7 @@ def face_search(req: FaceSearchRequest):
 
 @app.get("/api/faces/gallery")
 def face_gallery():
-    """Get all images that have detected faces."""
+    """Get all images that have detected faces, grouped per source image."""
     logger.info("FRS face gallery")
     result = es.search(
         index=INDEX_NAME,
@@ -1290,12 +1403,34 @@ def face_gallery():
     images = []
     for h in result["hits"]["hits"]:
         src = h["_source"]
-        images.append({
-            "doc_id": h["_id"],
-            "filename": src.get("title", ""),
-            "face_count": src.get("face_count", 0),
-            "faces": src.get("face_details", []),
-        })
+        doc_id = h["_id"]
+        title = src.get("title", "")
+        face_details = src.get("face_details", [])
+        if not face_details:
+            continue
+
+        by_source = {}
+        for face in face_details:
+            source_image = face.get("source_image", title)
+            key = source_image
+            if key not in by_source:
+                by_source[key] = {"faces": [], "img_width": 0, "img_height": 0}
+            by_source[key]["faces"].append(face)
+            if face.get("img_width"):
+                by_source[key]["img_width"] = face.get("img_width")
+            if face.get("img_height"):
+                by_source[key]["img_height"] = face.get("img_height")
+
+        for source_image, data in by_source.items():
+            images.append({
+                "doc_id": doc_id,
+                "filename": source_image,
+                "face_count": len(data["faces"]),
+                "faces": data["faces"],
+                "img_width": data["img_width"],
+                "img_height": data["img_height"],
+                "image_url": f"/api/extracted-images/{doc_id}/{source_image}",
+            })
 
     return {"images": images, "total": len(images)}
 
@@ -1317,6 +1452,83 @@ def face_stats():
     return {
         "total_face_embeddings": face_count,
         "images_with_faces": images_with_faces,
+    }
+
+
+@app.get("/api/intel/graph")
+def intelligence_graph():
+    """Build an investigation linkage graph of entities across documents.
+
+    Nodes: persons, organizations, locations, documents.
+    Edges: entity -> document (entity mentioned in that document), and
+           entity -> entity when they co-occur in the same document.
+    """
+    logger.info("Building intelligence linkage graph")
+    result = es.search(
+        index=INDEX_NAME,
+        body={
+            "query": {"term": {"has_entities": True}},
+            "_source": ["title", "entities", "created_at", "file_type", "content_type"],
+        },
+        size=200,
+    )
+
+    doc_nodes = {}
+    entity_nodes = {}
+    links = []
+    link_keys = set()
+
+    def _node(nid, label, kind):
+        if nid not in entity_nodes:
+            entity_nodes[nid] = {"id": nid, "label": label, "kind": kind, "doc_count": 0}
+        return nid
+
+    def _link(a, b, kind):
+        key = (a, b)
+        if key not in link_keys:
+            link_keys.add(key)
+            links.append({"source": a, "target": b, "kind": kind})
+
+    for h in result["hits"]["hits"]:
+        src = h["_source"]
+        doc_id = h["_id"]
+        doc_nodes[doc_id] = {
+            "id": doc_id,
+            "label": src.get("title", "Untitled"),
+            "kind": "document",
+            "file_type": src.get("file_type", ""),
+            "created_at": src.get("created_at", ""),
+        }
+
+        entities = src.get("entities", {}) or {}
+        related = []
+        for kind, field in (("person", "persons"), ("organization", "organizations"),
+                            ("location", "locations")):
+            for name in (entities.get(field) or []):
+                name = str(name).strip()
+                if not name:
+                    continue
+                nid = f"{kind}:{name}"
+                _node(nid, name, kind)
+                entity_nodes[nid]["doc_count"] += 1
+                related.append(nid)
+                _link(nid, doc_id, "mentions")
+
+        for i in range(len(related)):
+            for j in range(i + 1, len(related)):
+                _link(related[i], related[j], "co-occurs")
+
+    nodes = list(doc_nodes.values()) + list(entity_nodes.values())
+    logger.info(f"Graph built: {len(nodes)} nodes, {len(links)} links")
+
+    counts = {}
+    for n in nodes:
+        counts[n["kind"]] = counts.get(n["kind"], 0) + 1
+
+    return {
+        "nodes": nodes,
+        "links": links,
+        "counts": counts,
     }
 
 

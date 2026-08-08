@@ -157,7 +157,7 @@ export default function FaceGalleryPage() {
             >
               <div className={`relative overflow-hidden mb-3 ${isDark ? '' : 'aspect-video rounded-xl'}`} style={isDark ? { aspectRatio: '16/9', border: '1px solid rgba(0,255,136,0.05)' } : undefined}>
                 <img
-                  src={`/api/extracted-images/${img.doc_id}/${img.filename}`}
+                  src={img.image_url || `/api/extracted-images/${img.doc_id}/${img.filename}`}
                   alt={img.filename}
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                   onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
@@ -171,8 +171,8 @@ export default function FaceGalleryPage() {
                   <ScanReticle
                     key={fi}
                     face={face}
-                    imgW={img.faces._imgWidth || 640}
-                    imgH={img.faces._imgHeight || 480}
+                    imgW={img.img_width || 640}
+                    imgH={img.img_height || 480}
                     selected={selectedFace?.docId === img.doc_id && selectedFace?.faceIndex === fi}
                   />
                 ))}
@@ -329,16 +329,16 @@ function FaceDetailModal({ image, onClose, onFaceSearch, selectedFace, searching
           <div className="flex flex-col lg:flex-row gap-5">
             <div className="lg:w-1/2">
               <div className="relative overflow-hidden" style={isDark ? { border: '1px solid rgba(0,255,136,0.1)' } : { borderRadius: '12px' }}>
-                <img src={`/api/extracted-images/${image.doc_id}/${image.filename}`} alt={image.filename} className="w-full object-contain" />
+                <img src={image.image_url || `/api/extracted-images/${image.doc_id}/${image.filename}`} alt={image.filename} className="w-full object-contain" />
                 {image.faces?.map((face, fi) => (
                   <div
                     key={fi}
                     className="absolute cursor-pointer"
                     style={{
-                      left: `${(face.bbox[0] / 640) * 100}%`,
-                      top: `${(face.bbox[1] / 480) * 100}%`,
-                      width: `${((face.bbox[2] - face.bbox[0]) / 640) * 100}%`,
-                      height: `${((face.bbox[3] - face.bbox[1]) / 480) * 100}%`,
+                      left: `${(face.bbox[0] / (image.img_width || 640)) * 100}%`,
+                      top: `${(face.bbox[1] / (image.img_height || 480)) * 100}%`,
+                      width: `${((face.bbox[2] - face.bbox[0]) / (image.img_width || 640)) * 100}%`,
+                      height: `${((face.bbox[3] - face.bbox[1]) / (image.img_height || 480)) * 100}%`,
                     }}
                     onClick={() => setCurrentFace(fi)}
                   >

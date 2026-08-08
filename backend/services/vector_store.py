@@ -74,13 +74,16 @@ def ensure_face_collection_dimension(expected_dim: int = 512):
         logger.debug(f"ensure_face_collection_dimension: {e}")
 
 
-def add_face_embeddings(doc_id: str, faces: list[dict]):
+def add_face_embeddings(doc_id: str, faces: list[dict], source_image: str = ""):
     """Store face embeddings for an image document.
 
     Each face entry: {face_id, bbox, confidence, embedding, age, gender}
+    source_image: optional filename of the image the faces came from
+    (for document-embedded images), used to build gallery/search URLs.
     """
     col = _get_collection(COLLECTION_FACES)
-    ids = [f"face_{doc_id}_{f['face_id']}" for f in faces]
+    source_key = source_image or doc_id
+    ids = [f"face_{doc_id}_{source_key}_{f['face_id']}" for f in faces]
     embeddings = [f["embedding"] for f in faces]
     metadatas = [
         {
@@ -93,6 +96,7 @@ def add_face_embeddings(doc_id: str, faces: list[dict]):
             "confidence": f["confidence"],
             "age": f.get("age", 0),
             "gender": f.get("gender", "unknown"),
+            "source_image": source_image or doc_id,
         }
         for f in faces
     ]

@@ -124,4 +124,5 @@ export const api = {
     request('/search/faces', { method: 'POST', body: JSON.stringify({ image_id: imageId, face_index: faceIndex, threshold, n_results: nResults }) }),
   faceGallery: () => request('/faces/gallery'),
   faceStats: () => request('/faces/stats'),
+  intelGraph: () => request('/intel/graph'),
 };
